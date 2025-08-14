@@ -2,13 +2,12 @@
 Imports System.ComponentModel
 Imports System.Diagnostics
 Imports System.Linq
-Imports System.Reflection
 Imports System.Threading.Tasks
 Imports System.Windows.Forms
 
 Public Class UsersForm
     Private DatabaseRecordList As List(Of Authorization)
-    Private GridviewBindingList As BindingList(Of Authorization)
+    Private GridviewBindingList As SortableBindingList(Of Authorization)
     Private DeletedRecords As New List(Of Authorization)
 
     Private Sub UsersForm_Load(sender As Object, e As EventArgs) Handles MyBase.Load
@@ -22,8 +21,6 @@ Public Class UsersForm
         End With
         ShowSplashAndLoadData()
     End Sub
-
-
 
     Private Sub InitializeContextMenu()
         ' Create delete menu item
@@ -99,7 +96,7 @@ Public Class UsersForm
 
     Private Async Function ReadAllDbRecords(splash As SplashForm) As Task(Of List(Of Authorization))
         Try
-            Return Await AuthRepository.GetAllWithProgressAsync(
+            Return Await AuthDB.GetAllWithProgressAsync(
             Sub(progress, count)
                 Me.Invoke(Sub()
                               splash.UpdateProgress(10 + CInt(progress * 0.8), $"Loaded {count} records")
@@ -114,7 +111,7 @@ Public Class UsersForm
     End Function
 
     Private Sub BindDataToGrid()
-        GridviewBindingList = New BindingList(Of Authorization)(
+        GridviewBindingList = New SortableBindingList(Of Authorization)(
         DatabaseRecordList.Select(Function(a)
                                       Return New Authorization With {
                                                                         .LoginID = a.LoginID,
@@ -136,6 +133,9 @@ Public Class UsersForm
 
     Private Sub ConfigureDataGridViewColumns()
         With dgvAuthorizations
+            ' Enable sorting for all columns
+            .Columns.Cast(Of DataGridViewColumn).ToList().ForEach(Sub(c) c.SortMode = DataGridViewColumnSortMode.Automatic)
+
             ' Hide timestamp columns
             If .Columns.Contains("CreatedAt") Then .Columns("CreatedAt").Visible = False
             If .Columns.Contains("UpdatedAt") Then .Columns("UpdatedAt").Visible = False
@@ -212,7 +212,7 @@ Public Class UsersForm
             Dim TmpDelList As New List(Of Integer)
             For Each auth In DeletedRecords
                 TmpDelList.Add(auth.LoginID)
-                Await AuthRepository.DeleteAsync(auth.LoginID)
+                Await AuthDB.DeleteAsync(auth.LoginID)
             Next
             If TmpDelList.Any() Then ShowAutoCloseMessage(Me, $"Records deleted {String.Join(", ", TmpDelList)} successfully!", "Success")
 
@@ -222,7 +222,7 @@ Public Class UsersForm
             For Each newAuth In GridviewBindingList.Where(Function(x) x.LoginID <= 0)
                 Try
                     newAuth.IsActive = If(newAuth.IsActive Is Nothing, True, newAuth.IsActive)
-                    Dim newId = Await AuthRepository.InsertAndReturnIdAsync(newAuth)
+                    Dim newId = Await AuthDB.InsertAndReturnIdAsync(newAuth)
                     newAuth.LoginID = newId
                     TmpAddList.Add(newId)
                 Catch ex As Exception
@@ -240,7 +240,7 @@ Public Class UsersForm
                 If originalAuth IsNot Nothing AndAlso Not DeletedRecords.Contains(modifiedAuth) Then
                     If DetectChanges(originalAuth, modifiedAuth) Then
                         Try
-                            Await AuthRepository.UpdateAsync(modifiedAuth)
+                            Await AuthDB.UpdateAsync(modifiedAuth)
                             TmpUpdList.Add(modifiedAuth.LoginID)
                         Catch ex As Exception
                             MessageBox.Show($"Error updating record {modifiedAuth.LoginID}: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Warning)
@@ -298,8 +298,6 @@ Public Class UsersForm
         End Try
     End Sub
 
-
-
     Private Function DetectChanges(originalAuth As Authorization, modifiedAuth As Authorization) As Boolean
         ' Compare only business fields, ignoring auto-updated timestamps
         Return originalAuth.Login <> modifiedAuth.Login OrElse
@@ -343,4 +341,6 @@ Public Class UsersForm
             e.Cancel = True
         End If
     End Sub
+
+
 End Class
